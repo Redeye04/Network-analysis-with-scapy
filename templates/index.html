@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Traffic Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-900 text-white p-8">
+    <div class="max-w-6xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8 text-cyan-400">Network Telemetry Dashboard</h1>
+
+        <form id="uploadForm" class="mb-8 flex flex-wrap items-center gap-3" enctype="multipart/form-data">
+            <span class="font-medium text-gray-300">Analyze a capture</span>
+            <input id="pcapFile" name="file" type="file" accept=".pcap,.pcapng,.cap" required hidden>
+            <button id="chooseFile" type="button" class="rounded bg-cyan-500 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-400">
+                Choose file
+            </button>
+            <span id="uploadStatus" class="text-sm text-gray-400" role="status"></span>
+        </form>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Protocol Breakdown Chart -->
+            <div class="bg-slate-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 text-gray-300">Protocol Distribution</h2>
+                <canvas id="protocolChart"></canvas>
+            </div>
+
+            <!-- Top Device Communications -->
+            <div class="bg-slate-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 text-gray-300">Top Device Communications (IP -> IP)</h2>
+                <canvas id="commChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const renderDashboard = data => {
+                // Render Protocol Doughnut Chart
+                const protocolCtx = document.getElementById('protocolChart').getContext('2d');
+                new Chart(protocolCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(data.protocols),
+                        datasets: [{
+                            data: Object.values(data.protocols),
+                            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#6b7280']
+                        }]
+                    },
+                    options: { responsive: true }
+                });
+
+                // Render Device Communication Bar Chart
+                const commCtx = document.getElementById('commChart').getContext('2d');
+                new Chart(commCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(data.communications),
+                        datasets: [{
+                            label: 'Packet Count',
+                            data: Object.values(data.communications),
+                            backgroundColor: '#6366f1'
+                        }]
+                    },
+                    options: { 
+                        responsive: true,
+                        indexAxis: 'y', // Makes it a horizontal bar chart
+                        scales: { x: { beginAtZero: true } }
+                    }
+                });
+        };
+
+        const loadDashboard = () => fetch('/api/network-data')
+            .then(response => response.json().then(data => {
+                if (!response.ok) throw new Error(data.error || 'Could not load capture');
+                renderDashboard(data);
+            }));
+
+        loadDashboard().catch(error => {
+            document.getElementById('uploadStatus').textContent = error.message;
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const status = document.getElementById('uploadStatus');
+            const file = document.getElementById('pcapFile').files[0];
+            if (!file) return;
+            status.textContent = `Uploading ${file.name}...`;
+            try {
+                const response = await fetch('/api/upload', { method: 'POST', body: new FormData(event.target) });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Upload failed');
+                await loadDashboard();
+                status.textContent = `${data.file} is now being analyzed.`;
+            } catch (error) {
+                status.textContent = error.message;
+            }
+        });
+
+        document.getElementById('chooseFile').addEventListener('click', () => {
+            document.getElementById('pcapFile').click();
+        });
+        document.getElementById('pcapFile').addEventListener('change', () => {
+            if (document.getElementById('pcapFile').files.length) {
+                document.getElementById('uploadForm').requestSubmit();
+            }
+        });
+    </script>
+</body>
+</html>

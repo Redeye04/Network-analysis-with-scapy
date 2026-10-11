@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NetScope · PCAP traffic analyzer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='9' r='4' fill='%234f8cff'/%3E%3Ccircle cx='24' cy='9' r='4' fill='%234f8cff'/%3E%3Ccircle cx='16' cy='24' r='4' fill='%234f8cff'/%3E%3Cpath d='M8 9h16M8 9l8 15M24 9l-8 15' stroke='%234f8cff' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+        <path d="M8 9h16M8 9l8 15M24 9l-8 15" stroke="currentColor" stroke-width="2" fill="none"/>
+        <circle cx="8" cy="9" r="4" fill="currentColor"/><circle cx="24" cy="9" r="4" fill="currentColor"/>
+        <circle cx="16" cy="24" r="4" fill="currentColor"/>
+      </svg>
+      <div><strong>NetScope</strong><small>PCAP traffic analyzer</small></div>
+    </div>
+    <div class="controls">
+      <label class="sr-only" for="fileSelect">Capture file</label>
+      <select id="fileSelect"></select>
+      <button class="btn" id="uploadBtn" type="button">Upload capture</button>
+      <input type="file" id="fileInput" accept=".pcap,.pcapng,.cap" hidden>
+      <button class="btn ghost" id="deleteBtn" type="button" hidden>Delete</button>
+      <button class="btn ghost" id="refreshBtn" type="button">Re-analyze</button>
+      <div class="menu">
+        <button class="btn ghost" id="exportBtn" type="button" aria-haspopup="true" aria-expanded="false">Export ▾</button>
+        <div class="menu-list" id="exportMenu" hidden></div>
+      </div>
+      <button class="btn icon" id="themeBtn" type="button" aria-label="Toggle light/dark theme">◐</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" class="tab-btn active" data-tab="overview">Overview</button>
+    <button role="tab" class="tab-btn" data-tab="map">Network map</button>
+    <button role="tab" class="tab-btn" data-tab="hosts">Hosts</button>
+    <button role="tab" class="tab-btn" data-tab="conversations">Conversations</button>
+    <button role="tab" class="tab-btn" data-tab="dns">DNS</button>
+    <button role="tab" class="tab-btn" data-tab="web">Web &amp; TLS</button>
+    <button role="tab" class="tab-btn" data-tab="security">Security <span class="pill" id="findingsPill" hidden></span></button>
+  </nav>
+
+  <main>
+    <!-- Overview -->
+    <section id="tab-overview" class="tab active" role="tabpanel">
+      <div id="kpis" class="kpis"></div>
+      <div class="grid">
+        <article class="card span-4"><h3>Protocols</h3><div class="chart-box"><canvas id="protoChart"></canvas></div></article>
+        <article class="card span-4"><h3>Applications</h3><div class="chart-box"><canvas id="appChart"></canvas></div></article>
+        <article class="card span-4"><h3>TCP flags</h3><div class="chart-box"><canvas id="flagsChart"></canvas></div></article>
+        <article class="card span-12">
+          <div class="card-head"><h3>Traffic over time</h3>
+            <select id="timelineMetric" aria-label="Timeline metric">
+              <option value="packets">Packets per interval</option>
+              <option value="throughput">Throughput (bits/s)</option>
+            </select></div>
+          <div class="chart-box tall"><canvas id="timelineChart"></canvas></div>
+          <p class="hint" id="timelineHint"></p>
+        </article>
+        <article class="card span-6"><h3>Busiest hosts (bytes sent / received)</h3><div class="chart-box tall"><canvas id="hostsChart"></canvas></div></article>
+        <article class="card span-6"><h3>Top server ports</h3><div class="chart-box tall"><canvas id="portsChart"></canvas></div></article>
+        <article class="card span-6"><h3>Packet size distribution</h3><div class="chart-box"><canvas id="sizeChart"></canvas></div></article>
+        <article class="card span-6"><h3>Top communications</h3><div id="commsTable"></div></article>
+      </div>
+    </section>
+
+    <!-- Network map -->
+    <section id="tab-map" class="tab" role="tabpanel">
+      <div class="card">
+        <div class="card-head">
+          <h3>Packet routes between devices</h3>
+          <div class="map-controls">
+            <label>Devices
+              <select id="mapLimit">
+                <option value="8">Top 8</option>
+                <option value="12" selected>Top 12</option>
+                <option value="20">Top 20</option>
+                <option value="30">Top 30</option>
+                <option value="60">Top 60</option>
+              </select></label>
+            <button class="btn ghost" id="mapPause" type="button">Pause packets</button>
+            <button class="btn ghost" id="mapCopy" type="button">Copy graph JSON</button>
+          </div>
+        </div>
+        <p class="hint">Each node is a device, numbered by traffic volume. Lines are conversations between devices and the moving dots are packets travelling in each direction. Click a node to isolate its routes.</p>
+        <div class="map-layout">
+          <div class="map-stage"><svg id="graphSvg" viewBox="0 0 800 520" role="img" aria-label="Network graph of devices and packet routes"></svg></div>
+          <aside class="map-side">
+            <div id="mapDetail" class="map-detail"><p class="muted">Select a node to see its neighbours.</p></div>
+            <div class="legend" id="mapLegend"></div>
+            <div id="mapNodes"></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- Hosts -->
+    <section id="tab-hosts" class="tab" role="tabpanel">
+      <div class="card"><h3>Hosts</h3><div id="hostsTable"></div></div>
+      <div class="card" id="hostDetail" hidden></div>
+    </section>
+
+    <!-- Conversations -->
+    <section id="tab-conversations" class="tab" role="tabpanel">
+      <div class="card"><h3>Conversations</h3><p class="hint">Bidirectional flows between two unicast hosts.</p><div id="convTable"></div></div>
+    </section>
+
+    <!-- DNS -->
+    <section id="tab-dns" class="tab" role="tabpanel">
+      <div id="dnsKpis" class="kpis"></div>
+      <div class="grid">
+        <article class="card span-6"><h3>Top queried names</h3><div class="chart-box tall"><canvas id="dnsTopChart"></canvas></div></article>
+        <article class="card span-3"><h3>Query types</h3><div class="chart-box tall"><canvas id="dnsTypeChart"></canvas></div></article>
+        <article class="card span-3"><h3>Response codes</h3><div class="chart-box tall"><canvas id="dnsRcodeChart"></canvas></div></article>
+        <article class="card span-12" id="dnsSuspiciousCard" hidden><h3>Suspicious domains</h3><p class="hint">Long or high-entropy names, a common sign of tunnelling or generated domains.</p><div id="dnsSuspicious"></div></article>
+        <article class="card span-12"><h3>Resolved names</h3><div id="dnsResolved"></div></article>
+      </div>
+    </section>
+
+    <!-- Web & TLS -->
+    <section id="tab-web" class="tab" role="tabpanel">
+      <div id="webKpis" class="kpis"></div>
+      <div class="grid">
+        <article class="card span-12"><h3>HTTP requests</h3><p class="hint">Unencrypted requests only. Query strings are removed before anything is stored.</p><div id="httpTable"></div></article>
+        <article class="card span-6"><h3>TLS server names (SNI)</h3><p class="hint">Encrypted payloads cannot be read; the requested server name is visible in the handshake.</p><div id="tlsTable"></div></article>
+        <article class="card span-6"><h3>User agents &amp; status codes</h3><div id="uaTable"></div><div class="chart-box" style="margin-top:12px"><canvas id="statusChart"></canvas></div></article>
+      </div>
+    </section>
+
+    <!-- Security -->
+    <section id="tab-security" class="tab" role="tabpanel">
+      <div class="card risk-card" id="riskCard"></div>
+      <div id="findings" class="findings"></div>
+      <div class="grid">
+        <article class="card span-6"><h3>ARP table</h3><div id="arpTable"></div></article>
+        <article class="card span-6"><h3>Cleartext services</h3><div id="insecureTable"></div><h3 style="margin-top:16px">ICMP</h3><div id="icmpTable"></div></article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer" id="footer"></footer>
+
+  <script src="{{ url_for('static', filename='vendor/chart.umd.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
